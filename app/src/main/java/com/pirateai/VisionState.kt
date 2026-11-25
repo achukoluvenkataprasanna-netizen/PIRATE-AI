@@ -22,8 +22,27 @@ object VisionState {
         mutable.value = mutable.value.copy(status = message, running = running)
     }
 
+    fun publishFrame(bitmap: Bitmap, width: Int, height: Int) {
+        mutable.value = mutable.value.copy(
+            running = true,
+            status = "Frame received — object detection starting",
+            bitmap = bitmap,
+            frameWidth = width,
+            frameHeight = height,
+            detections = emptyList()
+        )
+    }
+
     fun publish(bitmap: Bitmap, boxes: List<DetectionBox>, width: Int, height: Int) {
         mutable.value = VisionSnapshot(true, "Live analysis active", bitmap, boxes, width, height)
+    }
+
+    fun publishDetections(boxes: List<DetectionBox>) {
+        mutable.value = mutable.value.copy(
+            running = true,
+            status = "Live analysis active",
+            detections = boxes
+        )
     }
 
     fun stop() {
