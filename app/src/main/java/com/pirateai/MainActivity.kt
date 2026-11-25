@@ -1,14 +1,15 @@
 package com.pirateai
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +31,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 class MainActivity : ComponentActivity() {
+    private var analysisState by mutableStateOf("Waiting for screen capture…")
+    private var coreState by mutableStateOf("SYSTEM READY")
+
+    private val analysisReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ScreenCaptureService.ACTION_ANALYSIS) {
+                analysisState = intent.getStringExtra(ScreenCaptureService.EXTRA_ANALYSIS)
+                    ?: "No objects detected."
+                coreState = "LIVE ANALYSIS"
+            }
+        }
+    }
+
     private val captureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -41,13 +55,34 @@ class MainActivity : ComponentActivity() {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service)
             else startService(service)
+            coreState = "STARTING SCREEN ANALYSIS"
+        } else {
+            coreState = "SCREEN CAPTURE PERMISSION DENIED"
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(ScreenCaptureService.ACTION_ANALYSIS)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(analysisReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(analysisReceiver, filter)
+        }
+    }
+
+    override fun onStop() {
+        unregisterReceiver(analysisReceiver)
+        super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             PirateHome(
+                status = coreState,
+                analysis = analysisState,
                 onStartCapture = {
                     val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                     captureLauncher.launch(manager.createScreenCaptureIntent())
@@ -56,6 +91,8 @@ class MainActivity : ComponentActivity() {
                     startService(Intent(this, ScreenCaptureService::class.java).apply {
                         action = ScreenCaptureService.ACTION_STOP
                     })
+                    coreState = "CAPTURE STOPPED"
+                    analysisState = "Screen analysis stopped."
                 }
             )
         }
@@ -63,9 +100,12 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PirateHome(onStartCapture: () -> Unit, onStopCapture: () -> Unit) {
-    var inputEnabled by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("SYSTEM READY") }
+private fun PirateHome(
+    status: String,
+    analysis: String,
+    onStartCapture: () -> Unit,
+    onStopCapture: () -> Unit
+) {
     val background = Color(0xFF080D16)
     val panel = Color(0xFF111C2B)
     val cyan = Color(0xFF39D9FF)
@@ -74,58 +114,41 @@ private fun PirateHome(onStartCapture: () -> Unit, onStopCapture: () -> Unit) {
         Surface(modifier = Modifier.fillMaxSize(), color = background) {
             Column(
                 modifier = Modifier.fillMaxSize().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text("PIRATE-AI", color = cyan, fontSize = 30.sp)
-                Text("ANDROID VISION SYSTEM  •  LOCAL MODE", color = Color.LightGray, fontSize = 11.sp)
+                Text("ANDROID VISION SYSTEM  •  ON-DEVICE MODE", color = Color.LightGray, fontSize = 11.sp)
                 Surface(color = panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("CORE STATUS", color = cyan)
-                        Text(status, color = Color.White, fontSize = 20.sp)
-                        Text("Processing stays on this device. Screen capture starts only after Android permission.", color = Color.LightGray)
+                        Text(status, color = Color.White, fontSize = 19.sp)
+                        Text("Screen analysis runs locally after you approve Android's screen-sharing prompt.", color = Color.LightGray)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Button(onClick = {
-                        status = "WAITING FOR ANDROID PERMISSION"
-                        onStartCapture()
-                        status = "CAPTURE REQUEST SENT"
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF087E9C))) {
+                    Button(onClick = onStartCapture, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF087E9C))) {
                         Text("START VISION")
                     }
-                    Button(onClick = {
-                        onStopCapture()
-                        status = "CAPTURE STOPPED"
-                    }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF344256))) {
+                    Button(onClick = onStopCapture, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF344256))) {
                         Text("STOP")
                     }
                 }
                 Surface(color = panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("INPUT CONTROL", color = cyan)
-                        Text("Touch automation is reserved for your own apps and authorized test environments.", color = Color.LightGray)
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Button(
-                                onClick = { inputEnabled = !inputEnabled },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (inputEnabled) Color(0xFF9B5B22) else Color(0xFF344256)
-                                )
-                            ) { Text(if (inputEnabled) "INPUT ENABLED" else "INPUT DISABLED") }
-                        }
-                        if (inputEnabled) {
-                            Text("Demo UI toggle only — no automatic taps are implemented in this starter.", color = Color(0xFFFFC27A), fontSize = 12.sp)
-                        }
+                        Text("LIVE OBJECT ANALYSIS", color = cyan)
+                        Text(analysis, color = Color.White, fontSize = 14.sp)
+                        Text("Detector: ML Kit bundled on-device model • Stream mode • Classification enabled", color = Color.LightGray, fontSize = 11.sp)
                     }
                 }
-                Spacer(Modifier.height(4.dp))
                 Surface(color = panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(18.dp)) {
-                        Text("ON-DEVICE MODULES", color = cyan)
-                        Text("• Screen capture: MediaProjection\n• Vision: Android bitmap processing (next module)\n• Network: not required\n• Model: none bundled in this starter", color = Color.LightGray)
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("PRIVACY & CONTROLS", color = cyan)
+                        Text("No network permission is used. Capture ends when you press STOP or revoke screen sharing from Android.", color = Color.LightGray)
+                        Text("PIRATE-AI does not send taps or automate other apps.", color = Color(0xFFFFC27A), fontSize = 12.sp)
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                Text("PIRATE-AI 0.1.0  •  LOCAL-FIRST", color = Color.Gray, fontSize = 11.sp)
+                Spacer(Modifier.height(2.dp))
+                Text("PIRATE-AI 0.2.0  •  LOCAL-FIRST", color = Color.Gray, fontSize = 11.sp)
             }
         }
     }
