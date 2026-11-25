@@ -99,7 +99,7 @@ class ScreenCaptureService : Service() {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 reader!!.surface, null, handler
             )
-            VisionState.setStatus("Capture active — waiting for first frame")
+            VisionState.setStatus("Capture active — waiting for first frame", running = true)
         } catch (error: Exception) {
             VisionState.setStatus("Capture failed: " + (error.message ?: "unknown"))
             stopCapture()
@@ -107,16 +107,22 @@ class ScreenCaptureService : Service() {
     }
 
     private fun analyzeFrame(source: ImageReader) {
-        if (System.currentTimeMillis() - lastFrameAt < 500 || !processing.compareAndSet(false, true)) return
-        lastFrameAt = System.currentTimeMillis()
+        // Drain every callback so skipped frames cannot fill ImageReader's small buffer.
         var image: Image? = null
         try {
             image = source.acquireLatestImage()
-            if (image == null) { processing.set(false); return }
-            val bitmap = imageToBitmap(image!!)
+            if (image == null) return
+            val now = System.currentTimeMillis()
+            if (now - lastFrameAt < 500 || !processing.compareAndSet(false, true)) {
+                image.close()
+                image = null
+                return
+            }
+            lastFrameAt = now
+            val bitmap = imageToBitmap(image)
             val frameWidth = bitmap.width
             val frameHeight = bitmap.height
-            image!!.close()
+            image.close()
             image = null
 
             detector.process(InputImage.fromBitmap(bitmap, 0))
