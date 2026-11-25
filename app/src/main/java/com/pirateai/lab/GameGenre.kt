@@ -18,11 +18,11 @@ object GenreDetector {
         val text = s.visibleText.joinToString(" ").lowercase()
         val labels = s.objectLabels.joinToString(" ").lowercase()
         val scores = mutableMapOf<GameGenre, Int>()
+        val reasons = mutableMapOf<GameGenre, MutableList<String>>()
         fun add(g: GameGenre, n: Int, reason: String) {
             scores[g] = (scores[g] ?: 0) + n
             reasons.getOrPut(g) { mutableListOf() }.add(reason)
         }
-        val reasons = mutableMapOf<GameGenre, MutableList<String>>()
         if (listOf("lap","speed","nitro","race","finish").any(text::contains)) add(GameGenre.RACING, 3, "Racing terms found")
         if (listOf("chess","turn","strategy","army","build").any(text::contains)) add(GameGenre.STRATEGY, 2, "Strategy terms found")
         if (s.hasGrid || listOf("match","level","puzzle","move").any(text::contains)) add(GameGenre.PUZZLE, 2, "Grid or puzzle indicators found")
