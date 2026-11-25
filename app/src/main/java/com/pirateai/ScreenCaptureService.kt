@@ -125,6 +125,10 @@ class ScreenCaptureService : Service() {
             image.close()
             image = null
 
+            // Show the captured frame immediately. Previously the preview was only
+            // published after ML Kit completed, making a slow/unavailable model look
+            // exactly like a failed screen-capture pipeline.
+            VisionState.publishFrame(bitmap, frameWidth, frameHeight)
             detector.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { objects ->
                     val boxes = objects.map { found ->
@@ -133,11 +137,10 @@ class ScreenCaptureService : Service() {
                         DetectionBox(label?.text ?: "Object", label?.confidence,
                             rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat())
                     }
-                    VisionState.publish(bitmap, boxes, frameWidth, frameHeight)
+                    VisionState.publishDetections(boxes)
                 }
                 .addOnFailureListener { error ->
-                    VisionState.setStatus("ML Kit error: " + (error.message ?: "unknown"))
-                    if (!bitmap.isRecycled) bitmap.recycle()
+                    VisionState.setStatus("Frame captured; ML Kit error: " + (error.message ?: "unknown"), running = true)
                 }
                 .addOnCompleteListener { processing.set(false) }
         } catch (error: Exception) {
