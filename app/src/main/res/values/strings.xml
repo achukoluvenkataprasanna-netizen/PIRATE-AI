@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="pirate_accessibility_description">Allows user-confirmed test gestures initiated from PIRATE-AI. It does not read screen text or passwords.</string>
+</resources>
