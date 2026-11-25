@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -58,16 +59,26 @@ class ScreenCaptureService : Service() {
             val image = imageReader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
                 val plane = image.planes[0]
-                val buffer = plane.buffer
-                val bitmap = android.graphics.Bitmap.createBitmap(
-                    image.width, image.height, android.graphics.Bitmap.Config.ARGB_8888
-                )
-                bitmap.copyPixelsFromBuffer(buffer)
+                val pixelStride = plane.pixelStride
+                val rowStride = plane.rowStride
+                val paddedWidth = rowStride / pixelStride
+                val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
+                padded.copyPixelsFromBuffer(plane.buffer)
+                val bitmap = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
                 val output = File(cacheDir, "pirate-latest-screen.png")
-                FileOutputStream(output).use { stream -> bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream) }
+                FileOutputStream(output).use { stream ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                }
                 bitmap.recycle()
+                padded.recycle()
             } finally {
                 image.close()
+            }
+        }, null)
+
+        projection?.registerCallback(object : MediaProjection.Callback() {
+            override fun onStop() {
+                stopSelf()
             }
         }, null)
 
@@ -81,12 +92,6 @@ class ScreenCaptureService : Service() {
             null,
             null
         )
-
-        projection?.registerCallback(object : MediaProjection.Callback() {
-            override fun onStop() {
-                stopSelf()
-            }
-        }, null)
     }
 
     private fun createNotificationChannel() {
