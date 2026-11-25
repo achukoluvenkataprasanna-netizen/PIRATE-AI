@@ -1,70 +1,44 @@
 # PIRATE-AI
 
-A local-first Android screen-perception and UI-testing starter. It connects to an Android device or emulator through Android Debug Bridge (ADB), captures screenshots, runs basic OpenCV analysis, and supports explicitly enabled taps/swipes for apps and games you own or are authorized to test.
+PIRATE-AI now contains a **standalone Android app** plus an optional Python development prototype. The Android app is designed to run on the phone; it does not require a PC or cloud AI service at runtime.
 
-> This is a PC-side Python starter, not an installable Android APK. It does not bypass anti-cheat, hide automation, or automate third-party competitive games.
+## Android app (primary)
+- Kotlin + Jetpack Compose HUD.
+- Android MediaProjection screen capture, started only after the system permission prompt.
+- Foreground service with a persistent capture notification and Stop control.
+- Captured frames are written to the app's private cache.
+- No network permission and no model download in this starter.
+- Touch automation is not active; the UI toggle is currently a placeholder.
 
-## Features
-- ADB screenshot capture (PNG decoded with OpenCV).
-- Basic image processing: HSV color-region detection and template matching.
-- A small, observable state machine for demo workflows.
-- ADB tap/swipe controller guarded by an explicit opt-in environment variable.
-- Dry-run by default.
+### Build an APK with GitHub Actions
+1. Open the **Actions** tab in this repository.
+2. Select **Build Android APK**.
+3. Choose **Run workflow** if it has not started automatically after a push.
+4. Open the completed run and download the `PIRATE-AI-debug-apk` artifact.
+5. Extract the ZIP to get `app-debug.apk`, then install it on your Android device. Android may ask you to allow installation from that source.
 
-## Requirements
-- Python 3.10+
-- Android SDK Platform Tools (adb) installed and on PATH
-- Android device with USB debugging enabled, or an Android emulator
-- OpenCV and NumPy
+The workflow builds a debug APK. It is not a Play Store release or a signed production build.
 
-## Setup
+### Build locally
+Requirements: JDK 17, Android SDK Platform Tools/SDK, and Gradle 8.9.
+```bash
+gradle assembleDebug
+```
+APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+
+## Python prototype (optional)
+The `pirate_ai/` folder is a PC-side ADB/OpenCV prototype, not required by the Android app.
+
 ```bash
 python -m venv .venv
-# Windows:
-.venv\\Scripts\\activate
-# macOS/Linux:
-source .venv/bin/activate
+# Windows: .venv\\Scripts\\activate
+# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 adb devices
-```
-
-Accept the USB debugging prompt on your device. Then run:
-```bash
 python -m pirate_ai
 ```
 
-The default run only captures a screenshot and prints the current workflow state. It saves the image as `pirate_capture.png`.
+The Python controller is disabled unless `PIRATE_ENABLE_INPUT=1` is explicitly set. Use only with apps and test environments you own or are authorized to test.
 
-## Input safety
-The controller is disabled unless `PIRATE_ENABLE_INPUT=1` is set. Use only a dedicated test device/build that you own or are authorized to test.
-
-Windows PowerShell:
-```powershell
-$env:PIRATE_ENABLE_INPUT = "1"
-python -m pirate_ai --tap-demo
-```
-
-macOS/Linux:
-```bash
-export PIRATE_ENABLE_INPUT=1
-python -m pirate_ai --tap-demo
-```
-
-The demo tap targets the center of the captured screen. Remove the opt-in variable to disable input again.
-
-## Project layout
-- `pirate_ai/capture.py` — ADB screenshot capture
-- `pirate_ai/vision.py` — color-region and template detection
-- `pirate_ai/controller.py` — guarded ADB input
-- `pirate_ai/state_machine.py` — minimal finite-state machine
-- `pirate_ai/__main__.py` — command-line entry point
-- `tests/` — unit tests
-
-## Run tests
-```bash
-pip install pytest
-python -m pytest
-```
-
-## Limitations
-This starter does not include a trained YOLO model, game-specific recognition, quest logic, or a native Android HUD. Detection thresholds and templates must be calibrated for your own app. Screen capture and input behavior vary by device and Android version.
+## Current limitations
+This is an early foundation, not a complete autonomous game AI. The Android version currently provides the HUD and permission-based screen capture. On-device object detection, a configurable visual pipeline, game-specific state logic, and a real overlay controller remain future work. It does not bypass anti-cheat or disguise automation.
