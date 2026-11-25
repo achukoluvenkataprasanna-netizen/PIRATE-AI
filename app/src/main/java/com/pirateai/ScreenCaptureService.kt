@@ -17,13 +17,25 @@ import android.os.Build
 import android.os.IBinder
 import android.util.DisplayMetrics
 import android.view.WindowManager
-import java.io.File
-import java.io.FileOutputStream
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.objects.ObjectDetection
+import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import java.util.concurrent.atomic.AtomicBoolean
 
 class ScreenCaptureService : Service() {
     private var projection: MediaProjection? = null
     private var reader: ImageReader? = null
     private var display: VirtualDisplay? = null
+    private val processing = AtomicBoolean(false)
+    private var lastFrameAt = 0L
+    private val detector by lazy {
+        val options = ObjectDetectorOptions.Builder()
+            .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
+            .enableClassification()
+            .enableMultipleObjects()
+            .build()
+        ObjectDetection.getClient(options)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -36,6 +48,7 @@ class ScreenCaptureService : Service() {
     }
 
     private fun startCapture(intent: Intent) {
+        if (projection != null) return
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, notification())
 
@@ -54,25 +67,60 @@ class ScreenCaptureService : Service() {
         @Suppress("DEPRECATION")
         (getSystemService(Context.WINDOW_SERVICE) as WindowManager).defaultDisplay.getRealMetrics(metrics)
 
-        reader = ImageReader.newInstance(metrics.widthPixels, metrics.heightPixels, PixelFormat.RGBA_8888, 2)
+        reader = ImageReader.newInstance(metrics.widthPixels, metrics.heightPixels, PixelFormat.RGBA_8888, 3)
         reader?.setOnImageAvailableListener({ imageReader ->
             val image = imageReader.acquireLatestImage() ?: return@setOnImageAvailableListener
+            val now = System.currentTimeMillis()
+            if (now - lastFrameAt < FRAME_INTERVAL_MS || !processing.compareAndSet(false, true)) {
+                image.close()
+                return@setOnImageAvailableListener
+            }
+            lastFrameAt = now
+
+            var bitmap: Bitmap? = null
             try {
                 val plane = image.planes[0]
-                val pixelStride = plane.pixelStride
-                val rowStride = plane.rowStride
-                val paddedWidth = rowStride / pixelStride
+                val paddedWidth = plane.rowStride / plane.pixelStride
                 val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
                 padded.copyPixelsFromBuffer(plane.buffer)
-                val bitmap = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
-                val output = File(cacheDir, "pirate-latest-screen.png")
-                FileOutputStream(output).use { stream ->
-                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-                }
-                bitmap.recycle()
+                bitmap = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
                 padded.recycle()
+            } catch (error: Exception) {
+                processing.set(false)
+                sendAnalysis("Frame conversion error: ${error.localizedMessage ?: "unknown"}")
             } finally {
                 image.close()
+            }
+
+            val frame = bitmap ?: return@setOnImageAvailableListener
+            try {
+                detector.process(InputImage.fromBitmap(frame, 0))
+                    .addOnSuccessListener { objects ->
+                        if (objects.isEmpty()) {
+                            sendAnalysis("No objects detected in the current frame.")
+                        } else {
+                            val lines = objects.take(8).mapIndexed { index, item ->
+                                val box = item.boundingBox
+                                val label = item.labels.maxByOrNull { it.confidence }
+                                val name = label?.text ?: "Object"
+                                val confidence = label?.confidence?.let { "  ${(it * 100).toInt()}%" } ?: ""
+                                val bounds = "x=${box.left}, y=${box.top}, w=${box.width()}, h=${box.height()}"
+                                "${index + 1}. $name$confidence\n   $bounds"
+                            }
+                            sendAnalysis("Detected ${objects.size} object(s):\n" + lines.joinToString("\n"))
+                        }
+                    }
+                    .addOnFailureListener { error ->
+                        sendAnalysis("Detector error: ${error.localizedMessage ?: "unknown"}")
+                    }
+                    .addOnCompleteListener {
+                        frame.recycle()
+                        processing.set(false)
+                    }
+            } catch (error: Exception) {
+                frame.recycle()
+                processing.set(false)
+                sendAnalysis("Analysis error: ${error.localizedMessage ?: "unknown"}")
             }
         }, null)
 
@@ -92,6 +140,13 @@ class ScreenCaptureService : Service() {
             null,
             null
         )
+        sendAnalysis("Screen capture active. Waiting for first analysis frame…")
+    }
+
+    private fun sendAnalysis(message: String) {
+        val intent = Intent(ACTION_ANALYSIS).setPackage(packageName)
+            .putExtra(EXTRA_ANALYSIS, message)
+        sendBroadcast(intent)
     }
 
     private fun createNotificationChannel() {
@@ -108,8 +163,8 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION")
             Notification.Builder(this)
         }
-        return builder.setContentTitle("PIRATE-AI is capturing the screen")
-            .setContentText("Screen capture is active. Tap Stop in the app to end it.")
+        return builder.setContentTitle("PIRATE-AI vision is active")
+            .setContentText("On-device object detection is running. Stop it from the app.")
             .setSmallIcon(android.R.drawable.ic_menu_view)
             .build()
     }
@@ -118,6 +173,7 @@ class ScreenCaptureService : Service() {
         display?.release()
         reader?.close()
         projection?.stop()
+        detector.close()
         display = null
         reader = null
         projection = null
@@ -127,9 +183,12 @@ class ScreenCaptureService : Service() {
     companion object {
         const val ACTION_START = "com.pirateai.START_CAPTURE"
         const val ACTION_STOP = "com.pirateai.STOP_CAPTURE"
+        const val ACTION_ANALYSIS = "com.pirateai.ANALYSIS_UPDATE"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_DATA = "projection_data"
+        const val EXTRA_ANALYSIS = "analysis_text"
         private const val CHANNEL_ID = "pirate_capture"
         private const val NOTIFICATION_ID = 42
+        private const val FRAME_INTERVAL_MS = 650L
     }
 }
