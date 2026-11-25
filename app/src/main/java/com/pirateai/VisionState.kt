@@ -17,15 +17,16 @@ data class VisionSnapshot(
 object VisionState {
     private val mutable = MutableStateFlow(VisionSnapshot())
     val state = mutable.asStateFlow()
-    fun setStatus(message: String) { mutable.value = mutable.value.copy(running = true, status = message) }
-    fun publish(bitmap: Bitmap, boxes: List<DetectionBox>, width: Int, height: Int) {
-        val old = mutable.value.bitmap
-        mutable.value = VisionSnapshot(true, "Live analysis active", bitmap, boxes, width, height)
-        if (old != null && old !== bitmap && !old.isRecycled) old.recycle()
+
+    fun setStatus(message: String, running: Boolean = false) {
+        mutable.value = mutable.value.copy(status = message, running = running)
     }
+
+    fun publish(bitmap: Bitmap, boxes: List<DetectionBox>, width: Int, height: Int) {
+        mutable.value = VisionSnapshot(true, "Live analysis active", bitmap, boxes, width, height)
+    }
+
     fun stop() {
-        val old = mutable.value.bitmap
         mutable.value = VisionSnapshot(status = "Capture stopped")
-        if (old != null && !old.isRecycled) old.recycle()
     }
 }
