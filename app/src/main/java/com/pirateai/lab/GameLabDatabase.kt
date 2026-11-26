@@ -25,6 +25,15 @@ data class PracticeSessionEntity(
     val notes: String = ""
 )
 
+@Entity(tableName = "demonstrations")
+data class DemonstrationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val gameId: String,
+    val controlName: String,
+    val observation: String,
+    val recordedAt: Long = System.currentTimeMillis()
+)
+
 @Dao
 interface GameLabDao {
     @Query("SELECT * FROM game_profiles ORDER BY updatedAt DESC")
@@ -38,15 +47,21 @@ interface GameLabDao {
 
     @Query("SELECT * FROM practice_sessions WHERE gameId = :gameId ORDER BY startedAt DESC")
     suspend fun sessions(gameId: String): List<PracticeSessionEntity>
+
+    @Insert
+    suspend fun saveDemonstration(item: DemonstrationEntity)
+
+    @Query("SELECT * FROM demonstrations WHERE gameId = :gameId ORDER BY recordedAt DESC")
+    suspend fun demonstrations(gameId: String): List<DemonstrationEntity>
 }
 
-@Database(entities = [GameProfileEntity::class, PracticeSessionEntity::class], version = 1, exportSchema = false)
+@Database(entities = [GameProfileEntity::class, PracticeSessionEntity::class, DemonstrationEntity::class], version = 2, exportSchema = false)
 abstract class GameLabDatabase : RoomDatabase() {
     abstract fun dao(): GameLabDao
     companion object {
         @Volatile private var INSTANCE: GameLabDatabase? = null
         fun get(context: Context): GameLabDatabase = INSTANCE ?: synchronized(this) {
-            INSTANCE ?: Room.databaseBuilder(context.applicationContext, GameLabDatabase::class.java, "pirate_game_lab.db").build().also { INSTANCE = it }
+            INSTANCE ?: Room.databaseBuilder(context.applicationContext, GameLabDatabase::class.java, "pirate_game_lab.db").fallbackToDestructiveMigration().build().also { INSTANCE = it }
         }
     }
 }
