@@ -11,7 +11,8 @@ data class VisionSnapshot(
     val bitmap: Bitmap? = null,
     val detections: List<DetectionBox> = emptyList(),
     val frameWidth: Int = 0,
-    val frameHeight: Int = 0
+    val frameHeight: Int = 0,
+    val visibleText: List<String> = emptyList()
 )
 
 object VisionState {
@@ -37,11 +38,12 @@ object VisionState {
         mutable.value = VisionSnapshot(true, "Live analysis active", bitmap, boxes, width, height)
     }
 
-    fun publishDetections(boxes: List<DetectionBox>) {
+    fun publishAnalysis(boxes: List<DetectionBox>, text: List<String>) {
         mutable.value = mutable.value.copy(
             running = true,
             status = "Live analysis active",
-            detections = boxes
+            detections = boxes,
+            visibleText = text
         )
     }
 
