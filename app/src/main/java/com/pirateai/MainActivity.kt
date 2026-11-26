@@ -22,7 +22,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import com.pirateai.lab.PracticeSafety
-import com.pirateai.lab.PracticeSpeed
+import com.pirateai.lab.PracticeSpeed\nimport com.pirateai.lab.OpenRouterAdvisor\nimport kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -61,7 +61,7 @@ private fun PirateDashboard(onStart: () -> Unit, onStop: () -> Unit, onAccessibi
     var controls by remember { mutableStateOf("") }
     var demoControl by remember { mutableStateOf("") }
     var demoNote by remember { mutableStateOf("") }
-    var ownTestAppConfirmed by remember { mutableStateOf(false) }
+    var ownTestAppConfirmed by remember { mutableStateOf(false) }\n    var openRouterKey by remember { mutableStateOf("") }\n    var remoteAdvice by remember { mutableStateOf("Optional cloud coach is off.") }\n    var remoteLoading by remember { mutableStateOf(false) }\n    val uiScope = rememberCoroutineScope()
     val bg = Color(0xFF071019)
     val cyan = Color(0xFF00E6B4)
     MaterialTheme(colorScheme = darkColorScheme(primary = cyan, background = bg, surface = Color(0xFF10212B))) {
