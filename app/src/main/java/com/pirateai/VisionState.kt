@@ -30,7 +30,8 @@ object VisionState {
             bitmap = bitmap,
             frameWidth = width,
             frameHeight = height,
-            detections = emptyList()
+            detections = emptyList(),
+            visibleText = emptyList()
         )
     }
 
