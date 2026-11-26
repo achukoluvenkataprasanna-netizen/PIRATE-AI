@@ -116,7 +116,7 @@ class ScreenCaptureService : Service() {
             image = source.acquireLatestImage()
             if (image == null) return
             val now = System.currentTimeMillis()
-            if (now - lastFrameAt < 500 || !processing.compareAndSet(false, true)) {
+            if (now - lastFrameAt < GameLearningEngine.state.value.practiceSpeed.intervalMs || !processing.compareAndSet(false, true)) {
                 image.close()
                 image = null
                 return
