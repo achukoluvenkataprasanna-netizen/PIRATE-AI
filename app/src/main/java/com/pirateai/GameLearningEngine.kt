@@ -1,90 +1,140 @@
 package com.pirateai
 
+import android.content.Context
+import com.pirateai.lab.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
+data class DemoControl(val name: String, val note: String)
 data class GamePracticeState(
+    val gameId: String = "",
     val gameName: String = "",
     val objective: String = "",
     val controlNotes: String = "",
+    val genre: GameGenre = GameGenre.UNKNOWN,
+    val genreConfidence: Float = 0f,
     val active: Boolean = false,
     val framesObserved: Int = 0,
     val objectsSeen: Int = 0,
     val successfulTrials: Int = 0,
     val failedTrials: Int = 0,
+    val demonstrations: List<DemoControl> = emptyList(),
+    val practiceSpeed: PracticeSpeed = PracticeSpeed.NORMAL,
     val lastObservation: String = "No game profile configured",
-    val recommendation: String = "Add the game name and its objective to begin."
+    val recommendation: String = "Add a game profile to begin.",
+    val persistenceStatus: String = "Opening local database…"
 )
 
-/**
- * Generic, local practice notebook and observation engine.
- * It deliberately does not execute taps or control third-party games.
- */
+/** Room-backed practice notebook. It never sends game actions autonomously. */
 object GameLearningEngine {
     private val mutable = MutableStateFlow(GamePracticeState())
     val state = mutable.asStateFlow()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var dao: GameLabDao? = null
+    private var startedAt: Long = 0L
+
+    fun initialize(context: Context) {
+        if (dao != null) return
+        scope.launch(Dispatchers.IO) {
+            val database = GameLabDatabase.get(context)
+            dao = database.dao()
+            val profiles = database.dao().profiles()
+            withContext(Dispatchers.Main) {
+                mutable.value = mutable.value.copy(
+                    persistenceStatus = "Local database ready • ${profiles.size} saved profiles"
+                )
+                profiles.firstOrNull()?.let { p ->
+                    mutable.value = mutable.value.copy(
+                        gameId = p.gameId, gameName = p.title, objective = p.objective,
+                        controlNotes = p.controlsJson, genre = runCatching { GameGenre.valueOf(p.genre) }.getOrDefault(GameGenre.UNKNOWN),
+                        recommendation = "Restored saved profile. Start a new practice session when ready."
+                    )
+                }
+            }
+        }
+    }
 
     fun configure(name: String, objective: String, controls: String) {
-        mutable.value = mutable.value.copy(
-            gameName = name.trim(),
-            objective = objective.trim(),
-            controlNotes = controls.trim(),
-            active = false,
-            framesObserved = 0,
-            objectsSeen = 0,
-            successfulTrials = 0,
-            failedTrials = 0,
-            lastObservation = "Profile saved locally",
-            recommendation = if (name.isBlank()) "Enter a game name." else "Start Vision, then begin a practice session."
-        )
+        val clean = name.trim()
+        if (clean.isBlank()) {
+            mutable.value = mutable.value.copy(recommendation = "Enter a game name.")
+            return
+        }
+        val current = mutable.value
+        val id = current.gameId.ifBlank { UUID.nameUUIDFromBytes(clean.lowercase().toByteArray()).toString() }
+        val next = current.copy(gameId=id, gameName=clean, objective=objective.trim(), controlNotes=controls.trim(),
+            active=false, framesObserved=0, objectsSeen=0, successfulTrials=0, failedTrials=0,
+            demonstrations=emptyList(), recommendation="Profile saved locally.")
+        mutable.value = next
+        scope.launch(Dispatchers.IO) {
+            runCatching { dao?.saveProfile(GameProfileEntity(id, clean, next.genre.name, next.objective, next.controlNotes)) }
+                .onSuccess { withContext(Dispatchers.Main) { mutable.value = mutable.value.copy(persistenceStatus="Profile saved in Room") } }
+                .onFailure { withContext(Dispatchers.Main) { mutable.value = mutable.value.copy(persistenceStatus="Database save failed: ${it.message}") } }
+        }
     }
 
     fun startPractice() {
-        val current = mutable.value
-        if (current.gameName.isBlank()) {
-            mutable.value = current.copy(recommendation = "Enter the game's name first.")
-            return
+        val c=mutable.value
+        if (c.gameName.isBlank() || c.objective.isBlank()) {
+            mutable.value=c.copy(recommendation="Enter the game name and objective first."); return
         }
-        if (current.objective.isBlank()) {
-            mutable.value = current.copy(recommendation = "Describe the game's objective first.")
-            return
-        }
-        mutable.value = current.copy(active = true, recommendation = "Observe a few gameplay frames. No actions will be sent automatically.")
+        startedAt=System.currentTimeMillis()
+        mutable.value=c.copy(active=true,framesObserved=0,objectsSeen=0,successfulTrials=0,failedTrials=0,
+            recommendation="Practice session active. Observe gameplay and record demonstrations.")
     }
 
     fun stopPractice() {
-        mutable.value = mutable.value.copy(active = false, recommendation = "Practice paused. Your session counters remain visible.")
+        val c=mutable.value
+        if (c.active && c.gameId.isNotBlank()) {
+            val duration=((System.currentTimeMillis()-startedAt)/1000).coerceAtLeast(0)
+            scope.launch(Dispatchers.IO) {
+                runCatching { dao?.saveSession(PracticeSessionEntity(gameId=c.gameId,durationSeconds=duration,
+                    attempts=c.successfulTrials+c.failedTrials,successes=c.successfulTrials,mistakes=c.failedTrials,
+                    notes="Genre=${c.genre}; demos=${c.demonstrations.size}")) }
+            }
+        }
+        mutable.value=c.copy(active=false,recommendation="Practice paused. Session results are being saved.")
     }
 
-    fun observe(detections: List<DetectionBox>) {
-        val current = mutable.value
-        if (!current.active) return
-        val labels = detections.map { it.label }.distinct()
-        val nextFrame = current.framesObserved + 1
-        val objectCount = current.objectsSeen + detections.size
-        val advice = when {
-            detections.isEmpty() -> "No recognised objects in this frame. Try a clearer, less obstructed game screen."
-            labels.any { it.contains("person", true) || it.contains("face", true) } ->
-                "A person-like object is visible. Check the game's rules before deciding what action is useful."
-            else -> "Observed: ${labels.take(4).joinToString()}. Compare this with your objective and record the result of a practice attempt."
-        }
-        mutable.value = current.copy(
-            framesObserved = nextFrame,
-            objectsSeen = objectCount,
-            lastObservation = if (labels.isEmpty()) "Frame $nextFrame: no ML Kit labels" else "Frame $nextFrame: ${labels.joinToString()}",
-            recommendation = advice
-        )
+    fun observe(detections: List<DetectionBox>, visibleText: List<String> = emptyList()) {
+        val c=mutable.value
+        if (!c.active) return
+        val labels=detections.map { it.label }.distinct()
+        val guess=GenreDetector.detect(GameSignals(visibleText=visibleText,objectLabels=labels,
+            hasTimer=visibleText.any { it.contains("time",true) || it.matches(Regex(".*\\d{1,2}:\\d{2}.*")) },
+            hasScore=visibleText.any { it.contains("score",true) }, hasGrid=labels.any { it.contains("tile",true) || it.contains("grid",true) },
+            hasVirtualJoystick=labels.any { it.contains("joystick",true) || it.contains("controller",true) }))
+        val genre=if (guess.genre==GameGenre.UNKNOWN) c.genre else guess.genre
+        val metrics=PracticeMetrics(c.successfulTrials+c.failedTrials,c.successfulTrials,c.failedTrials)
+        val tips=StrategyAdvisor.suggest(genre,c.objective,metrics)
+        val advice=tips.joinToString(" • ") { it.title+": "+it.explanation }
+        mutable.value=c.copy(framesObserved=c.framesObserved+1,objectsSeen=c.objectsSeen+detections.size,
+            genre=genre,genreConfidence=guess.confidence,
+            lastObservation=if(labels.isEmpty()) "Frame observed • no object labels" else "Detected: ${labels.take(5).joinToString()}",
+            recommendation=if(guess.genre==GameGenre.UNKNOWN) advice else "Genre estimate: ${guess.genre} (${(guess.confidence*100).toInt()}%). $advice")
     }
 
     fun recordTrial(success: Boolean) {
-        val current = mutable.value
-        if (!current.active) return
-        mutable.value = if (success) current.copy(
-            successfulTrials = current.successfulTrials + 1,
-            recommendation = "Successful trial recorded. Note which rule or control helped."
-        ) else current.copy(
-            failedTrials = current.failedTrials + 1,
-            recommendation = "Unsuccessful trial recorded. Review the objective and control notes before the next attempt."
-        )
+        val c=mutable.value; if(!c.active) return
+        mutable.value=if(success)c.copy(successfulTrials=c.successfulTrials+1,
+            recommendation="Success recorded. Keep the demonstration and strategy that worked.")
+        else c.copy(failedTrials=c.failedTrials+1,
+            recommendation="Mistake recorded. Review the state and change one practice variable.")
     }
+
+    fun recordDemonstration(controlName: String, note: String) {
+        val c=mutable.value
+        if(!c.active || controlName.isBlank()) return
+        val demo=DemoControl(controlName.trim(),note.trim())
+        val updated=(c.demonstrations+demo).takeLast(100)
+        mutable.value=c.copy(demonstrations=updated,
+            recommendation="Demonstration saved: ${demo.name}. This records your example; it does not replay it automatically.")
+        scope.launch(Dispatchers.IO) {
+            runCatching { dao?.saveDemonstration(DemonstrationEntity(gameId=c.gameId,controlName=demo.name,observation=demo.note)) }
+        }
+    }
+
+    fun setSpeed(speed: PracticeSpeed) { mutable.value=mutable.value.copy(practiceSpeed=speed) }
 }
