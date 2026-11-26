@@ -71,7 +71,7 @@ object GameLearningEngine {
             demonstrations=emptyList(), recommendation="Profile saved locally.")
         mutable.value = next
         scope.launch(Dispatchers.IO) {
-            runCatching { dao?.saveProfile(GameProfileEntity(id, clean, next.genre.name, next.objective, next.controlNotes)) }
+            runCatching { (dao ?: error("Local database is still initializing")).saveProfile(GameProfileEntity(id, clean, next.genre.name, next.objective, next.controlNotes)) }
                 .onSuccess { withContext(Dispatchers.Main) { mutable.value = mutable.value.copy(persistenceStatus="Profile saved in Room") } }
                 .onFailure { withContext(Dispatchers.Main) { mutable.value = mutable.value.copy(persistenceStatus="Database save failed: ${it.message}") } }
         }
@@ -92,7 +92,7 @@ object GameLearningEngine {
         if (c.active && c.gameId.isNotBlank()) {
             val duration=((System.currentTimeMillis()-startedAt)/1000).coerceAtLeast(0)
             scope.launch(Dispatchers.IO) {
-                runCatching { dao?.saveSession(PracticeSessionEntity(gameId=c.gameId,durationSeconds=duration,
+                runCatching { (dao ?: error("Local database is still initializing")).saveSession(PracticeSessionEntity(gameId=c.gameId,durationSeconds=duration,
                     attempts=c.successfulTrials+c.failedTrials,successes=c.successfulTrials,mistakes=c.failedTrials,
                     notes="Genre=${c.genre}; demos=${c.demonstrations.size}")) }
             }
@@ -118,7 +118,7 @@ object GameLearningEngine {
             recommendation=if(guess.genre==GameGenre.UNKNOWN) advice else "Genre estimate: ${guess.genre} (${(guess.confidence*100).toInt()}%). $advice")
         if (guess.genre != GameGenre.UNKNOWN && c.gameId.isNotBlank() && guess.genre != c.genre) {
             scope.launch(Dispatchers.IO) {
-                runCatching { dao?.saveProfile(GameProfileEntity(c.gameId,c.gameName,guess.genre.name,c.objective,c.controlNotes)) }
+                runCatching { (dao ?: error("Local database is still initializing")).saveProfile(GameProfileEntity(c.gameId,c.gameName,guess.genre.name,c.objective,c.controlNotes)) }
             }
         }
     }
@@ -139,7 +139,7 @@ object GameLearningEngine {
         mutable.value=c.copy(demonstrations=updated,
             recommendation="Demonstration saved: ${demo.name}. This records your example; it does not replay it automatically.")
         scope.launch(Dispatchers.IO) {
-            runCatching { dao?.saveDemonstration(DemonstrationEntity(gameId=c.gameId,controlName=demo.name,observation=demo.note)) }
+            runCatching { (dao ?: error("Local database is still initializing")).saveDemonstration(DemonstrationEntity(gameId=c.gameId,controlName=demo.name,observation=demo.note)) }
         }
     }
 
