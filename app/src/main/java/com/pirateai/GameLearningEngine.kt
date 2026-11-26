@@ -41,6 +41,7 @@ object GameLearningEngine {
             val database = GameLabDatabase.get(context)
             dao = database.dao()
             val profiles = database.dao().profiles()
+            val recentDemos = profiles.firstOrNull()?.let { database.dao().demonstrations(it.gameId) }.orEmpty()
             withContext(Dispatchers.Main) {
                 mutable.value = mutable.value.copy(
                     persistenceStatus = "Local database ready • ${profiles.size} saved profiles"
@@ -49,7 +50,8 @@ object GameLearningEngine {
                     mutable.value = mutable.value.copy(
                         gameId = p.gameId, gameName = p.title, objective = p.objective,
                         controlNotes = p.controlsJson, genre = runCatching { GameGenre.valueOf(p.genre) }.getOrDefault(GameGenre.UNKNOWN),
-                        recommendation = "Restored saved profile. Start a new practice session when ready."
+                        demonstrations = recentDemos.map { DemoControl(it.controlName, it.observation) }.takeLast(100),
+                        recommendation = "Restored saved profile and ${recentDemos.size} demonstrations. Start a new practice session when ready."
                     )
                 }
             }
@@ -114,6 +116,11 @@ object GameLearningEngine {
             genre=genre,genreConfidence=guess.confidence,
             lastObservation=if(labels.isEmpty()) "Frame observed • no object labels" else "Detected: ${labels.take(5).joinToString()}",
             recommendation=if(guess.genre==GameGenre.UNKNOWN) advice else "Genre estimate: ${guess.genre} (${(guess.confidence*100).toInt()}%). $advice")
+        if (guess.genre != GameGenre.UNKNOWN && c.gameId.isNotBlank() && guess.genre != c.genre) {
+            scope.launch(Dispatchers.IO) {
+                runCatching { dao?.saveProfile(GameProfileEntity(c.gameId,c.gameName,guess.genre.name,c.objective,c.controlNotes)) }
+            }
+        }
     }
 
     fun recordTrial(success: Boolean) {
