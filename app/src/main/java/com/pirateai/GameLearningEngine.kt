@@ -110,7 +110,7 @@ object GameLearningEngine {
             hasVirtualJoystick=labels.any { it.contains("joystick",true) || it.contains("controller",true) }))
         val genre=if (guess.genre==GameGenre.UNKNOWN) c.genre else guess.genre
         val metrics=PracticeMetrics(c.successfulTrials+c.failedTrials,c.successfulTrials,c.failedTrials)
-        val tips=StrategyAdvisor.suggest(genre,c.objective,metrics)
+        val tips=StateAwareStrategyAdvisor.recommend(GameStateModel(genre, c.objective, visibleEntities=labels, score=visibleText.firstOrNull { it.contains("score", true) }?.filter { it.isDigit() }?.toIntOrNull(), playerNotes=c.controlNotes),metrics)
         val advice=tips.joinToString(" • ") { it.title+": "+it.explanation }
         mutable.value=c.copy(framesObserved=c.framesObserved+1,objectsSeen=c.objectsSeen+detections.size,
             genre=genre,genreConfidence=guess.confidence,
