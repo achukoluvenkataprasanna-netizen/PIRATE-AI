@@ -14,29 +14,39 @@ data class GameSignals(
 data class GenreGuess(val genre: GameGenre, val confidence: Float, val reasons: List<String>)
 
 object GenreDetector {
+    private val rules: Map<GameGenre, List<String>> = mapOf(
+        GameGenre.RACING to listOf("lap", "nitro", "race", "racing", "finish", "speedometer", "steering", "drift", "checkpoint"),
+        GameGenre.STRATEGY to listOf("chess", "turn", "strategy", "army", "troop", "base", "territory", "resource", "build"),
+        GameGenre.PUZZLE to listOf("match", "puzzle", "tile", "grid", "rotate", "pattern", "block", "word", "hint"),
+        GameGenre.PLATFORMER to listOf("jump", "platform", "checkpoint", "run", "ledge", "coin"),
+        GameGenre.ACTION to listOf("attack", "defend", "weapon", "enemy", "boss", "health", "joystick", "character"),
+        GameGenre.SPORTS to listOf("goal", "team", "score", "period", "player", "match", "foul", "kickoff"),
+        GameGenre.SIMULATION to listOf("coins", "resources", "upgrade", "factory", "shop", "build", "manage", "farm"),
+        GameGenre.RPG to listOf("inventory", "quest", "level up", "mission", "equipment", "dialogue", "skill"),
+        GameGenre.RHYTHM to listOf("rhythm", "combo", "beat", "perfect", "tap", "music"),
+        GameGenre.CARD to listOf("deck", "draw", "cards", "hand", "discard", "trump")
+    )
+
     fun detect(s: GameSignals): GenreGuess {
-        val text = s.visibleText.joinToString(" ").lowercase()
-        val labels = s.objectLabels.joinToString(" ").lowercase()
+        val evidence = (s.visibleText + s.objectLabels).joinToString(" ").lowercase()
         val scores = mutableMapOf<GameGenre, Int>()
         val reasons = mutableMapOf<GameGenre, MutableList<String>>()
-        fun add(g: GameGenre, n: Int, reason: String) {
-            scores[g] = (scores[g] ?: 0) + n
+        fun add(g: GameGenre, points: Int, reason: String) {
+            scores[g] = (scores[g] ?: 0) + points
             reasons.getOrPut(g) { mutableListOf() }.add(reason)
         }
-        if (listOf("lap","speed","nitro","race","finish").any(text::contains)) add(GameGenre.RACING, 3, "Racing terms found")
-        if (listOf("chess","turn","strategy","army","build").any(text::contains)) add(GameGenre.STRATEGY, 2, "Strategy terms found")
-        if (s.hasGrid || listOf("match","level","puzzle","move").any(text::contains)) add(GameGenre.PUZZLE, 2, "Grid or puzzle indicators found")
-        if (s.hasVirtualJoystick || labels.contains("character")) add(GameGenre.ACTION, 1, "Character or joystick detected")
-        if (listOf("jump","platform","checkpoint").any(text::contains)) add(GameGenre.PLATFORMER, 3, "Platforming terms found")
-        if (listOf("goal","team","score","period").any(text::contains)) add(GameGenre.SPORTS, 2, "Sports indicators found")
-        if (listOf("inventory","quest","level up","mission").any(text::contains)) add(GameGenre.RPG, 3, "RPG indicators found")
-        if (listOf("rhythm","combo","beat").any(text::contains)) add(GameGenre.RHYTHM, 3, "Rhythm indicators found")
-        if (listOf("deck","draw","cards").any(text::contains)) add(GameGenre.CARD, 3, "Card indicators found")
-        if (listOf("coins","resources","upgrade","factory").any(text::contains)) add(GameGenre.SIMULATION, 2, "Simulation indicators found")
-        if (s.hasTimer) add(GameGenre.RACING, 1, "Timer visible")
-        if (s.hasScore) add(GameGenre.SPORTS, 1, "Score visible")
-        val best = scores.maxByOrNull { it.value } ?: return GenreGuess(GameGenre.UNKNOWN, 0f, listOf("Not enough signals; ask the user to choose a genre"))
+        rules.forEach { (genre, keywords) ->
+            val hits = keywords.filter { evidence.contains(it) }
+            if (hits.isNotEmpty()) add(genre, hits.size * 2, "Signals: ${hits.take(4).joinToString()}")
+        }
+        if (s.hasTimer) add(GameGenre.RACING, 1, "Timer detected")
+        if (s.hasScore && scores[GameGenre.SPORTS] == null) add(GameGenre.SPORTS, 1, "Score indicator detected")
+        if (s.hasGrid) add(GameGenre.PUZZLE, 3, "Grid layout detected")
+        if (s.hasVirtualJoystick) add(GameGenre.ACTION, 2, "Virtual joystick detected")
+        val best = scores.maxByOrNull { it.value }
+            ?: return GenreGuess(GameGenre.UNKNOWN, 0f, listOf("Insufficient evidence; ask the player to select a genre"))
         val total = scores.values.sum().coerceAtLeast(1)
-        return GenreGuess(best.key, (best.value.toFloat() / total).coerceIn(0f, 1f), reasons[best.key].orEmpty())
+        val confidence = (best.value.toFloat() / total).coerceIn(0f, 1f)
+        return GenreGuess(best.key, confidence, reasons[best.key].orEmpty())
     }
 }
