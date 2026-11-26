@@ -2,6 +2,8 @@ package com.pirateai.lab
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "game_profiles")
 data class GameProfileEntity(
@@ -59,9 +61,14 @@ interface GameLabDao {
 abstract class GameLabDatabase : RoomDatabase() {
     abstract fun dao(): GameLabDao
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS demonstrations (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, gameId TEXT NOT NULL, controlName TEXT NOT NULL, observation TEXT NOT NULL, recordedAt INTEGER NOT NULL)")
+            }
+        }
         @Volatile private var INSTANCE: GameLabDatabase? = null
         fun get(context: Context): GameLabDatabase = INSTANCE ?: synchronized(this) {
-            INSTANCE ?: Room.databaseBuilder(context.applicationContext, GameLabDatabase::class.java, "pirate_game_lab.db").fallbackToDestructiveMigration().build().also { INSTANCE = it }
+            INSTANCE ?: Room.databaseBuilder(context.applicationContext, GameLabDatabase::class.java, "pirate_game_lab.db").addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
         }
     }
 }
