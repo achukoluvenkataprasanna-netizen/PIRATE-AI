@@ -23,6 +23,8 @@ import android.content.pm.ServiceInfo
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -39,6 +41,7 @@ class ScreenCaptureService : Service() {
             .enableClassification()
             .build()
     )
+    private val textRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     private val processing = AtomicBoolean(false)
     private var lastFrameAt = 0L
 
@@ -129,7 +132,9 @@ class ScreenCaptureService : Service() {
             // published after ML Kit completed, making a slow/unavailable model look
             // exactly like a failed screen-capture pipeline.
             VisionState.publishFrame(bitmap, frameWidth, frameHeight)
-            detector.process(InputImage.fromBitmap(bitmap, 0))
+            val input = InputImage.fromBitmap(bitmap, 0)
+            val textTask = textRecognizer.process(input)
+            detector.process(input)
                 .addOnSuccessListener { objects ->
                     val boxes = objects.map { found ->
                         val label = found.labels.firstOrNull()
@@ -137,7 +142,14 @@ class ScreenCaptureService : Service() {
                         DetectionBox(label?.text ?: "Object", label?.confidence,
                             rect.left.toFloat(), rect.top.toFloat(), rect.right.toFloat(), rect.bottom.toFloat())
                     }
-                    VisionState.publishDetections(boxes)
+                    textTask.addOnSuccessListener { textResult ->
+                        val lines = textResult.textBlocks.flatMap { block -> block.lines.map { it.text } }.take(40)
+                        VisionState.publishAnalysis(boxes, lines)
+                        GameLearningEngine.observe(boxes, lines)
+                    }.addOnFailureListener {
+                        VisionState.publishAnalysis(boxes, emptyList())
+                        GameLearningEngine.observe(boxes, emptyList())
+                    }
                 }
                 .addOnFailureListener { error ->
                     VisionState.setStatus("Frame captured; ML Kit error: " + (error.message ?: "unknown"), running = true)
@@ -190,6 +202,7 @@ class ScreenCaptureService : Service() {
         try { projection?.stop() } catch (_: Exception) {}
         projection = null
         try { detector.close() } catch (_: Exception) {}
+        try { textRecognizer.close() } catch (_: Exception) {}
         try { worker?.quitSafely() } catch (_: Exception) {}
         worker = null
         handler = null
