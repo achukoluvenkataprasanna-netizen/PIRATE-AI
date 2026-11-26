@@ -15,13 +15,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
+import com.pirateai.lab.PracticeSafety
+import com.pirateai.lab.PracticeSpeed
 
 class MainActivity : ComponentActivity() {
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -37,21 +38,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        GameLearningEngine.initialize(applicationContext)
         setContent { PirateDashboard(::requestCapture, ::stopCapture, ::openAccessibilitySettings) }
     }
-
     private fun requestCapture() {
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         captureLauncher.launch(manager.createScreenCaptureIntent())
     }
-
     private fun stopCapture() {
+        PracticeSafety.disarm()
         startService(Intent(this, ScreenCaptureService::class.java).apply { action = ScreenCaptureService.ACTION_STOP })
     }
-
-    private fun openAccessibilitySettings() {
-        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-    }
+    private fun openAccessibilitySettings() { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
 }
 
 @Composable
@@ -61,99 +59,92 @@ private fun PirateDashboard(onStart: () -> Unit, onStop: () -> Unit, onAccessibi
     var gameName by remember { mutableStateOf("") }
     var objective by remember { mutableStateOf("") }
     var controls by remember { mutableStateOf("") }
-    LaunchedEffect(state.bitmap, state.detections, practice.active) {
-        if (practice.active && state.bitmap != null) GameLearningEngine.observe(state.detections)
-    }
+    var demoControl by remember { mutableStateOf("") }
+    var demoNote by remember { mutableStateOf("") }
+    var ownTestAppConfirmed by remember { mutableStateOf(false) }
     val bg = Color(0xFF071019)
     val cyan = Color(0xFF00E6B4)
     MaterialTheme(colorScheme = darkColorScheme(primary = cyan, background = bg, surface = Color(0xFF10212B))) {
-        Column(
-            Modifier.fillMaxSize().background(bg).verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        Column(Modifier.fillMaxSize().background(bg).verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("PIRATE-AI", style = MaterialTheme.typography.headlineMedium, color = cyan)
-            Text("ANDROID • LIVE VISUAL ANALYSIS & ASSISTED CONTROLS", color = Color.LightGray)
+            Text("UNIVERSAL GAME LAB • ON-DEVICE PRACTICE", color = Color.LightGray)
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(onClick = onStart, enabled = !state.running, modifier = Modifier.weight(1f)) { Text("START VISION") }
                 OutlinedButton(onClick = onStop, enabled = state.running, modifier = Modifier.weight(1f)) { Text("STOP") }
             }
-            OutlinedButton(onClick = onAccessibility, modifier = Modifier.fillMaxWidth()) {
-                Text("OPEN ANDROID ACCESSIBILITY SETTINGS")
-            }
-            Text("Enable “PIRATE-AI screen controls” only if you want to test assisted screen actions. Android will ask you to approve it there.", color = Color.LightGray)
+            OutlinedButton(onClick = onAccessibility, modifier = Modifier.fillMaxWidth()) { Text("OPEN ACCESSIBILITY SETTINGS") }
             Text(state.status, color = if (state.running) cyan else Color.LightGray)
-            Text("CAPTURE PREVIEW + DETECTION BOXES", color = cyan, style = MaterialTheme.typography.titleSmall)
-            AndroidView(
-                modifier = Modifier.fillMaxWidth().height(320.dp).background(Color(0xFF14232D)),
-                factory = { context ->
-                    FrameLayout(context).apply {
-                        val image = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
-                        val overlay = DetectionOverlayView(context)
-                        addView(image, FrameLayout.LayoutParams(-1, -1))
-                        addView(overlay, FrameLayout.LayoutParams(-1, -1))
-                        tag = Pair(image, overlay)
-                    }
-                },
+            Text("LIVE SCREEN + DETECTION OVERLAY", color = cyan, style = MaterialTheme.typography.titleSmall)
+            AndroidView(modifier = Modifier.fillMaxWidth().height(280.dp).background(Color(0xFF14232D)),
+                factory = { context -> FrameLayout(context).apply {
+                    val image = ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+                    val overlay = DetectionOverlayView(context)
+                    addView(image, FrameLayout.LayoutParams(-1, -1)); addView(overlay, FrameLayout.LayoutParams(-1, -1))
+                    tag = Pair(image, overlay)
+                } },
                 update = { frame ->
                     @Suppress("UNCHECKED_CAST")
                     val pair = frame.tag as Pair<ImageView, DetectionOverlayView>
                     pair.first.setImageBitmap(state.bitmap)
                     if (state.frameWidth > 0 && state.frameHeight > 0) pair.second.setDetections(state.detections, state.frameWidth, state.frameHeight)
                     else pair.second.clear()
-                }
-            )
-            Text("OBJECTS DETECTED: " + state.detections.size, color = cyan)
-            state.detections.forEachIndexed { index, item ->
-                val confidence = item.confidence?.let { " • " + (it * 100).toInt() + "%" } ?: ""
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF10212B))) {
-                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                        Text((index + 1).toString() + ". " + item.label + confidence, color = cyan)
-                        Text("Box: " + item.left.toInt() + ", " + item.top.toInt() + " — " + item.right.toInt() + ", " + item.bottom.toInt(),
-                            color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            }
+                })
+            Text("Objects: ${state.detections.size} • OCR lines: ${state.visibleText.size}", color = cyan)
+            state.visibleText.take(5).forEach { Text("OCR: $it", color = Color.LightGray, style = MaterialTheme.typography.bodySmall) }
+
             Divider(color = Color.DarkGray)
-            Text("GAME LEARNING LAB", color = cyan, style = MaterialTheme.typography.titleLarge)
-            Text("Generic practice engine • local session notes • observation only", color = Color.LightGray)
-            OutlinedTextField(
-                value = gameName, onValueChange = { gameName = it }, modifier = Modifier.fillMaxWidth(),
-                label = { Text("Game name") }, placeholder = { Text("Enter the exact game title") }, singleLine = true
-            )
-            OutlinedTextField(
-                value = objective, onValueChange = { objective = it }, modifier = Modifier.fillMaxWidth(),
-                label = { Text("Game objective / rules") }, placeholder = { Text("What is the goal? What ends a round?") }, minLines = 2
-            )
-            OutlinedTextField(
-                value = controls, onValueChange = { controls = it }, modifier = Modifier.fillMaxWidth(),
-                label = { Text("Controls / notes") }, placeholder = { Text("e.g. left/right buttons, jump, pause") }, minLines = 2
-            )
-            Button(onClick = { GameLearningEngine.configure(gameName, objective, controls) }, modifier = Modifier.fillMaxWidth()) {
-                Text("SAVE GAME PROFILE")
+            Text("GAME PROFILE & MEMORY", color = cyan, style = MaterialTheme.typography.titleLarge)
+            Text(practice.persistenceStatus, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(value=gameName,onValueChange={gameName=it},modifier=Modifier.fillMaxWidth(),label={Text("Game name")},singleLine=true)
+            OutlinedTextField(value=objective,onValueChange={objective=it},modifier=Modifier.fillMaxWidth(),label={Text("Objective / rules")},minLines=2)
+            OutlinedTextField(value=controls,onValueChange={controls=it},modifier=Modifier.fillMaxWidth(),label={Text("Known controls / notes")},minLines=2)
+            Button(onClick={GameLearningEngine.configure(gameName,objective,controls)},modifier=Modifier.fillMaxWidth()){Text("SAVE PROFILE TO ROOM")}
+            Text("Profile: ${practice.gameName.ifBlank { "Not configured" }}",color=cyan)
+            Text("Detected genre: ${practice.genre} • confidence ${(practice.genreConfidence*100).toInt()}%",color=cyan)
+            Text("Frames: ${practice.framesObserved} • objects: ${practice.objectsSeen}",color=Color.LightGray)
+            Text("Success: ${practice.successfulTrials} • mistakes: ${practice.failedTrials}",color=Color.LightGray)
+            Text(practice.lastObservation,color=Color.LightGray)
+            Text(practice.recommendation,color=cyan)
+
+            Text("DEMONSTRATION RECORDER",color=cyan,style=MaterialTheme.typography.titleMedium)
+            OutlinedTextField(value=demoControl,onValueChange={demoControl=it},modifier=Modifier.fillMaxWidth(),label={Text("Control demonstrated (e.g. jump)")},singleLine=true)
+            OutlinedTextField(value=demoNote,onValueChange={demoNote=it},modifier=Modifier.fillMaxWidth(),label={Text("What happened / when to use it")},minLines=2)
+            OutlinedButton(onClick={GameLearningEngine.recordDemonstration(demoControl,demoNote);demoControl="";demoNote=""},
+                enabled=practice.active && demoControl.isNotBlank(),modifier=Modifier.fillMaxWidth()){Text("SAVE DEMONSTRATION")}
+            Text("Recorded demonstrations: ${practice.demonstrations.size}",color=Color.LightGray)
+            practice.demonstrations.takeLast(4).forEach { Text("• ${it.name}: ${it.note}",color=Color.LightGray,style=MaterialTheme.typography.bodySmall) }
+
+            Text("PRACTICE CONTROLS",color=cyan,style=MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Button(onClick={GameLearningEngine.startPractice()},enabled=!practice.active,modifier=Modifier.weight(1f)){Text("START")}
+                OutlinedButton(onClick={GameLearningEngine.stopPractice()},enabled=practice.active,modifier=Modifier.weight(1f)){Text("PAUSE & SAVE")}
             }
-            Text("Profile: " + if (practice.gameName.isBlank()) "Not configured" else practice.gameName, color = cyan)
-            Text(practice.recommendation, color = Color.LightGray)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { GameLearningEngine.startPractice() }, enabled = !practice.active, modifier = Modifier.weight(1f)) {
-                    Text("START PRACTICE")
-                }
-                OutlinedButton(onClick = { GameLearningEngine.stopPractice() }, enabled = practice.active, modifier = Modifier.weight(1f)) {
-                    Text("PAUSE")
-                }
-            }
-            Text("Frames observed: ${practice.framesObserved}   Objects seen: ${practice.objectsSeen}", color = Color.LightGray)
-            Text("Successful trials: ${practice.successfulTrials}   Unsuccessful: ${practice.failedTrials}", color = Color.LightGray)
-            Text(practice.lastObservation, color = cyan)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { GameLearningEngine.recordTrial(true) }, enabled = practice.active, modifier = Modifier.weight(1f)) {
-                    Text("RECORD SUCCESS")
-                }
-                OutlinedButton(onClick = { GameLearningEngine.recordTrial(false) }, enabled = practice.active, modifier = Modifier.weight(1f)) {
-                    Text("RECORD MISTAKE")
+            Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                PracticeSpeed.values().forEach { speed ->
+                    FilterChip(selected=practice.practiceSpeed==speed,onClick={GameLearningEngine.setSpeed(speed)},label={Text(speed.name)})
                 }
             }
-            Text("Practice-only mode: this first module observes frames and tracks your practice results. It does not autonomously tap or control games. Automatic play requires a game-specific, permitted test setup.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-            Text("Screen capture and accessibility are separate Android permissions. Actions must be deliberate and confirmed; this app does not silently send messages, place orders, or make payments.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+            Text("Observation interval: ${practice.practiceSpeed.intervalMs} ms",color=Color.LightGray,style=MaterialTheme.typography.bodySmall)
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick={GameLearningEngine.recordTrial(true)},enabled=practice.active,modifier=Modifier.weight(1f)){Text("SUCCESS")}
+                OutlinedButton(onClick={GameLearningEngine.recordTrial(false)},enabled=practice.active,modifier=Modifier.weight(1f)){Text("MISTAKE")}
+            }
+
+            Divider(color=Color.DarkGray)
+            Text("PRACTICE SAFETY",color=cyan,style=MaterialTheme.typography.titleMedium)
+            Text("Gestures are disabled unless you explicitly confirm a user-owned test app. This build records demonstrations and recommendations; it does not replay them automatically.",color=Color.LightGray,style=MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
+                Checkbox(checked=ownTestAppConfirmed,onCheckedChange={ownTestAppConfirmed=it})
+                Text("I confirm this is my own app or an authorised test environment",color=Color.LightGray)
+            }
+            OutlinedButton(onClick={PracticeSafety.arm(ownTestAppConfirmed,ownTestAppConfirmed)},enabled=ownTestAppConfirmed,modifier=Modifier.fillMaxWidth()){Text("ARM SINGLE CONFIRMED TEST ACTION")}
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick={PracticeSafety.manualTakeover();GameLearningEngine.stopPractice()},modifier=Modifier.weight(1f)){Text("MANUAL TAKEOVER")}
+                Button(onClick={PracticeSafety.emergencyStop();GameLearningEngine.stopPractice()},modifier=Modifier.weight(1f),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFB3261E))){Text("EMERGENCY STOP")}
+            }
+            OutlinedButton(onClick={PracticeSafety.resetEmergencyStop(ownTestAppConfirmed)},enabled=ownTestAppConfirmed,modifier=Modifier.fillMaxWidth()){Text("RESET STOP (CONFIRM)")}
+            Text("Screen capture and Accessibility are separate Android permissions. Manual takeover and emergency stop disarm the gesture gate.",color=Color.Gray,style=MaterialTheme.typography.bodySmall)
         }
     }
 }
