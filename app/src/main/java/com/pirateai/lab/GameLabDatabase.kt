@@ -33,7 +33,12 @@ data class DemonstrationEntity(
     val gameId: String,
     val controlName: String,
     val observation: String,
-    val recordedAt: Long = System.currentTimeMillis()
+    val recordedAt: Long = System.currentTimeMillis(),
+    val sequenceIndex: Int = 0,
+    val actionId: String = "",
+    val stateBefore: String = "",
+    val stateAfter: String = "",
+    val source: String = "MANUAL"
 )
 
 @Dao
@@ -53,22 +58,41 @@ interface GameLabDao {
     @Insert
     suspend fun saveDemonstration(item: DemonstrationEntity)
 
-    @Query("SELECT * FROM demonstrations WHERE gameId = :gameId ORDER BY recordedAt DESC")
+    @Query("SELECT * FROM demonstrations WHERE gameId = :gameId ORDER BY sequenceIndex ASC, recordedAt ASC")
     suspend fun demonstrations(gameId: String): List<DemonstrationEntity>
 }
 
-@Database(entities = [GameProfileEntity::class, PracticeSessionEntity::class, DemonstrationEntity::class], version = 2, exportSchema = false)
+@Database(
+    entities = [GameProfileEntity::class, PracticeSessionEntity::class, DemonstrationEntity::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class GameLabDatabase : RoomDatabase() {
     abstract fun dao(): GameLabDao
+
     companion object {
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS demonstrations (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, gameId TEXT NOT NULL, controlName TEXT NOT NULL, observation TEXT NOT NULL, recordedAt INTEGER NOT NULL)")
             }
         }
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE demonstrations ADD COLUMN sequenceIndex INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE demonstrations ADD COLUMN actionId TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE demonstrations ADD COLUMN stateBefore TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE demonstrations ADD COLUMN stateAfter TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE demonstrations ADD COLUMN source TEXT NOT NULL DEFAULT 'MANUAL'")
+            }
+        }
+
         @Volatile private var INSTANCE: GameLabDatabase? = null
         fun get(context: Context): GameLabDatabase = INSTANCE ?: synchronized(this) {
-            INSTANCE ?: Room.databaseBuilder(context.applicationContext, GameLabDatabase::class.java, "pirate_game_lab.db").addMigrations(MIGRATION_1_2).build().also { INSTANCE = it }
+            INSTANCE ?: Room.databaseBuilder(
+                context.applicationContext,
+                GameLabDatabase::class.java,
+                "pirate_game_lab.db"
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { INSTANCE = it }
         }
     }
 }
