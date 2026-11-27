@@ -34,7 +34,8 @@ class TreasureGridPlannerTest {
     @Test fun illegalManualMoveDoesNotChangeState() {
         val start = TreasureGridState()
         assertEquals(start, start.apply(GridMove.UP))
-        val afterRight = start.apply(GridMove.RIGHT)\n        assertEquals(afterRight, afterRight.apply(GridMove.DOWN))
+        val afterRight = start.apply(GridMove.RIGHT)
+        assertEquals(afterRight, afterRight.apply(GridMove.DOWN))
     }
 
     @Test fun stateSnapshotContainsBeforeAndAfterCoordinates() {
