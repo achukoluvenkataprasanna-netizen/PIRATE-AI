@@ -13,4 +13,5 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "PIRATE-AI"
-include(":app")
+include(":app", ":Chloe:app")
+project(":Chloe:app").projectDir = file("Chloe/app")
