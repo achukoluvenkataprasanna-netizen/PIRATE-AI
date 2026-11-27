@@ -34,11 +34,11 @@ data class DemonstrationEntity(
     val controlName: String,
     val observation: String,
     val recordedAt: Long = System.currentTimeMillis(),
-    val sequenceIndex: Int = 0,
-    val actionId: String = "",
-    val stateBefore: String = "",
-    val stateAfter: String = "",
-    val source: String = "MANUAL"
+    @ColumnInfo(defaultValue = "0") val sequenceIndex: Int = 0,
+    @ColumnInfo(defaultValue = "''") val actionId: String = "",
+    @ColumnInfo(defaultValue = "''") val stateBefore: String = "",
+    @ColumnInfo(defaultValue = "''") val stateAfter: String = "",
+    @ColumnInfo(defaultValue = "'MANUAL'") val source: String = "MANUAL"
 )
 
 @Dao
