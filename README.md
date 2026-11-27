@@ -28,3 +28,27 @@ MediaProjection grants screen capture only. It cannot tap buttons or control ano
 The detector processes frames locally; no screen images are uploaded by this app. The standard ML Kit object-detection artifact can use a model provided through Google Play services, so initial model availability may depend on Play services and network availability. The detector returns broad object categories, not game-specific understanding, and may omit labels/confidence for stylized or small objects.
 
 Screen capture is not started automatically. Android asks for permission each session, and a persistent notification indicates when capture is active.
+
+
+## PIRATE-AI Practice Recorder and Treasure Grid
+
+The built-in **Treasure Grid** is a small, deterministic game used to test the practice loop without connecting to another app.
+
+1. Save the default **PIRATE-AI Treasure Grid** profile.
+2. Press **START PRACTICE**.
+3. Press **RECORD DEMO**.
+4. Move the player with the on-screen directional buttons. Each legal move is stored in Room with its sequence number, action ID, source, and before/after state snapshot.
+5. Press **STOP RECORDING** to stop collecting examples. Press **PAUSE & SAVE** to end the practice session.
+6. The **Game-Specific Action Planner** calculates a shortest legal route around blocked cells. It displays one suggested move; press **APPLY ONE SUGGESTED MOVE** to take that step yourself.
+7. Press **RESET GAME** to start another run.
+
+The planner is deliberately advisory: it does not inject taps, replay a demonstration, or operate another app. The recorder stores structured transitions for the built-in test game; it is not yet a general screen-touch recorder for arbitrary games.
+
+Room database schema version 3 includes migrations from versions 1 and 2. Planner unit tests live in `app/src/test/java/com/pirateai/lab/TreasureGridPlannerTest.kt`. Run them locally with:
+
+```bash
+gradle testDebugUnitTest
+gradle assembleDebug
+```
+
+The Android APK build is also run by GitHub Actions on pushes to `main`.
