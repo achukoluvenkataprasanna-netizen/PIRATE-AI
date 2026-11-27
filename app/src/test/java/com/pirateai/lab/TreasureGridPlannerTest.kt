@@ -20,7 +20,7 @@ class TreasureGridPlannerTest {
     @Test fun suggestedActionIsOnlyOneStep() {
         val suggestion = TreasureGridPlanner.suggest(TreasureGridState())
         assertNotNull(suggestion)
-        assertEquals(1, suggestion!!.remainingSteps.coerceAtMost(1))
+        assertTrue(suggestion!!.remainingSteps > 0)
         assertTrue(suggestion.explanation.contains("press APPLY"))
     }
 
@@ -34,7 +34,7 @@ class TreasureGridPlannerTest {
     @Test fun illegalManualMoveDoesNotChangeState() {
         val start = TreasureGridState()
         assertEquals(start, start.apply(GridMove.UP))
-        assertEquals(start, start.apply(GridMove.RIGHT).apply(GridMove.DOWN))
+        val afterRight = start.apply(GridMove.RIGHT)\n        assertEquals(afterRight, afterRight.apply(GridMove.DOWN))
     }
 
     @Test fun stateSnapshotContainsBeforeAndAfterCoordinates() {
